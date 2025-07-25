@@ -13,13 +13,21 @@ import {
   Package,
   Printer,
   Settings,
-  LogOut
+  LogOut,
+  Users,
+  Building,
+  UserCog
 } from 'lucide-react'
 import { useAuth } from '../hooks/useAuth'
 import { MRDTag, Product, NotificationData } from '../types'
 import { blink } from '../blink/client'
-import { format, differenceInMinutes, addHours } from 'date-fns'
-import { NotificationSystem } from './NotificationSystem'
+import { format, differenceInMinutes } from 'date-fns'
+import NotificationSystem from './NotificationSystem'
+import ActiveTagsDashboard from './ActiveTagsDashboard'
+import CreateTag from './CreateTag'
+import ProductManagement from './ProductManagement'
+import UserManagement from './UserManagement'
+import LocationManagement from './LocationManagement'
 
 export const Dashboard: React.FC = () => {
   const { user, currentLocation, logout, setCurrentLocation } = useAuth()
@@ -27,6 +35,7 @@ export const Dashboard: React.FC = () => {
   const [products, setProducts] = useState<Product[]>([])
   const [notifications, setNotifications] = useState<NotificationData[]>([])
   const [isLoading, setIsLoading] = useState(true)
+  const [activeTab, setActiveTab] = useState('overview')
 
   const checkForExpiringTags = useCallback((tags?: MRDTag[]) => {
     const tagsToCheck = tags || activeTags
@@ -163,6 +172,31 @@ export const Dashboard: React.FC = () => {
     }).length
   }
 
+  // Determine available tabs based on user role
+  const getAvailableTabs = () => {
+    const baseTabs = [
+      { id: 'overview', label: 'Overview', icon: Package },
+      { id: 'active-tags', label: 'Active Tags', icon: Clock },
+      { id: 'create-tag', label: 'Create Tag', icon: Plus }
+    ]
+
+    if (user?.role === 'admin') {
+      baseTabs.push(
+        { id: 'products', label: 'Products', icon: Settings },
+        { id: 'users', label: 'Users', icon: Users },
+        { id: 'locations', label: 'Locations', icon: Building }
+      )
+    } else if (user?.role === 'manager') {
+      baseTabs.push(
+        { id: 'products', label: 'Products', icon: Settings }
+      )
+    }
+
+    return baseTabs
+  }
+
+  const availableTabs = getAvailableTabs()
+
   if (isLoading) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
@@ -212,200 +246,150 @@ export const Dashboard: React.FC = () => {
       </header>
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Stats Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Active Tags</CardTitle>
-              <Package className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{stats.totalActive}</div>
-              <p className="text-xs text-muted-foreground">Currently tracked</p>
-            </CardContent>
-          </Card>
-          
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Expiring Soon</CardTitle>
-              <Clock className="h-4 w-4 text-amber-500" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold text-amber-600">{stats.expiringSoon}</div>
-              <p className="text-xs text-muted-foreground">Within 30 minutes</p>
-            </CardContent>
-          </Card>
-          
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Expired</CardTitle>
-              <AlertTriangle className="h-4 w-4 text-red-500" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold text-red-600">{stats.expired}</div>
-              <p className="text-xs text-muted-foreground">Needs attention</p>
-            </CardContent>
-          </Card>
-          
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Products</CardTitle>
-              <Settings className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{products.length}</div>
-              <p className="text-xs text-muted-foreground">Available items</p>
-            </CardContent>
-          </Card>
-        </div>
-
         {/* Main Content */}
-        <Tabs defaultValue="active-tags" className="space-y-6">
-          <TabsList className="grid w-full grid-cols-4">
-            <TabsTrigger value="active-tags">Active Tags</TabsTrigger>
-            <TabsTrigger value="create-tag">Create Tag</TabsTrigger>
-            <TabsTrigger value="print-queue">Print Queue</TabsTrigger>
-            <TabsTrigger value="products">Products</TabsTrigger>
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
+          <TabsList className="grid w-full" style={{ gridTemplateColumns: `repeat(${availableTabs.length}, 1fr)` }}>
+            {availableTabs.map(tab => {
+              const Icon = tab.icon
+              return (
+                <TabsTrigger key={tab.id} value={tab.id} className="flex items-center gap-2">
+                  <Icon className="w-4 h-4" />
+                  {tab.label}
+                </TabsTrigger>
+              )
+            })}
           </TabsList>
           
-          <TabsContent value="active-tags" className="space-y-6">
-            <div className="flex justify-between items-center">
-              <h2 className="text-xl font-semibold">Active Tags</h2>
-              <Button>
-                <Plus className="w-4 h-4 mr-2" />
-                Create New Tag
-              </Button>
-            </div>
-            
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {activeTags.map((tag) => {
-                const product = products.find(p => p.id === tag.productId)
-                const tagStatus = getTagStatus(tag)
-                
-                return (
-                  <Card key={tag.id} className="relative">
-                    <CardHeader className="pb-3">
-                      <div className="flex justify-between items-start">
-                        <CardTitle className="text-lg">{product?.name || 'Unknown Product'}</CardTitle>
-                        <Badge variant={tagStatus.color as any}>
-                          {tagStatus.text}
-                        </Badge>
-                      </div>
-                      <CardDescription>{product?.category}</CardDescription>
-                    </CardHeader>
-                    <CardContent className="space-y-2">
-                      <div className="text-sm">
-                        <div className="flex justify-between">
-                          <span className="text-gray-600">Made:</span>
-                          <span>{format(new Date(tag.madeTime), 'MMM dd, HH:mm')}</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-gray-600">Discard:</span>
-                          <span>{format(new Date(tag.discardTime), 'MMM dd, HH:mm')}</span>
-                        </div>
-                        {tag.quantity && (
-                          <div className="flex justify-between">
-                            <span className="text-gray-600">Quantity:</span>
-                            <span>{tag.quantity}</span>
-                          </div>
-                        )}
-                      </div>
-                      <div className="flex gap-2 pt-2">
-                        <Button size="sm" variant="outline" className="flex-1">
-                          <Printer className="w-3 h-3 mr-1" />
-                          Print
-                        </Button>
-                        <Button size="sm" variant="outline" className="flex-1">
-                          Edit
-                        </Button>
-                      </div>
-                    </CardContent>
-                  </Card>
-                )
-              })}
-            </div>
-            
-            {activeTags.length === 0 && (
-              <Card className="text-center py-12">
+          <TabsContent value="overview" className="space-y-6">
+            {/* Stats Cards */}
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium">Active Tags</CardTitle>
+                  <Package className="h-4 w-4 text-muted-foreground" />
+                </CardHeader>
                 <CardContent>
-                  <Package className="w-16 h-16 text-gray-400 mx-auto mb-4" />
-                  <h3 className="text-xl font-semibold text-gray-900 mb-2">No Active Tags</h3>
-                  <p className="text-gray-600 mb-4">
-                    Create your first MRD time tag to start tracking products.
-                  </p>
-                  <Button>
-                    <Plus className="w-4 h-4 mr-2" />
-                    Create First Tag
-                  </Button>
+                  <div className="text-2xl font-bold">{stats.totalActive}</div>
+                  <p className="text-xs text-muted-foreground">Currently tracked</p>
                 </CardContent>
               </Card>
-            )}
-          </TabsContent>
-          
-          <TabsContent value="create-tag">
+              
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium">Expiring Soon</CardTitle>
+                  <Clock className="h-4 w-4 text-amber-500" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold text-amber-600">{stats.expiringSoon}</div>
+                  <p className="text-xs text-muted-foreground">Within 30 minutes</p>
+                </CardContent>
+              </Card>
+              
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium">Expired</CardTitle>
+                  <AlertTriangle className="h-4 w-4 text-red-500" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold text-red-600">{stats.expired}</div>
+                  <p className="text-xs text-muted-foreground">Needs attention</p>
+                </CardContent>
+              </Card>
+              
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium">Products</CardTitle>
+                  <Settings className="h-4 w-4 text-muted-foreground" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold">{products.length}</div>
+                  <p className="text-xs text-muted-foreground">Available items</p>
+                </CardContent>
+              </Card>
+            </div>
+
+            {/* Recent Tags */}
             <Card>
               <CardHeader>
-                <CardTitle>Create New MRD Tag</CardTitle>
-                <CardDescription>Generate a new time tag for product tracking</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <p className="text-gray-600">Tag creation form will be implemented here.</p>
-              </CardContent>
-            </Card>
-          </TabsContent>
-          
-          <TabsContent value="print-queue">
-            <Card>
-              <CardHeader>
-                <CardTitle>Print Queue</CardTitle>
-                <CardDescription>Manage batch printing of tags</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <p className="text-gray-600">Print queue management will be implemented here.</p>
-              </CardContent>
-            </Card>
-          </TabsContent>
-          
-          <TabsContent value="products">
-            <Card>
-              <CardHeader>
-                <CardTitle>Product Management</CardTitle>
-                <CardDescription>Manage global product database</CardDescription>
+                <CardTitle>Recent Active Tags</CardTitle>
+                <CardDescription>Latest tags created at this location</CardDescription>
               </CardHeader>
               <CardContent>
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {products.map((product) => (
-                    <Card key={product.id}>
-                      <CardHeader className="pb-3">
-                        <CardTitle className="text-base">{product.name}</CardTitle>
-                        <CardDescription>{product.category}</CardDescription>
-                      </CardHeader>
-                      <CardContent className="space-y-2">
-                        <div className="text-sm">
-                          <div className="flex justify-between">
-                            <span className="text-gray-600">Shelf Life:</span>
-                            <span>{product.shelfLifeHours}h</span>
+                  {activeTags.slice(0, 6).map((tag) => {
+                    const product = products.find(p => p.id === tag.productId)
+                    const tagStatus = getTagStatus(tag)
+                    
+                    return (
+                      <Card key={tag.id} className="relative">
+                        <CardHeader className="pb-3">
+                          <div className="flex justify-between items-start">
+                            <CardTitle className="text-lg">{product?.name || 'Unknown Product'}</CardTitle>
+                            <Badge variant={tagStatus.color as any}>
+                              {tagStatus.text}
+                            </Badge>
                           </div>
-                          {product.storageTemp && (
+                          <CardDescription>{product?.category}</CardDescription>
+                        </CardHeader>
+                        <CardContent className="space-y-2">
+                          <div className="text-sm">
                             <div className="flex justify-between">
-                              <span className="text-gray-600">Storage:</span>
-                              <span className="text-xs">{product.storageTemp}</span>
+                              <span className="text-gray-600">Made:</span>
+                              <span>{format(new Date(tag.madeTime), 'MMM dd, HH:mm')}</span>
                             </div>
-                          )}
-                          {product.allergens && (
                             <div className="flex justify-between">
-                              <span className="text-gray-600">Allergens:</span>
-                              <span className="text-xs">{product.allergens}</span>
+                              <span className="text-gray-600">Discard:</span>
+                              <span>{format(new Date(tag.discardTime), 'MMM dd, HH:mm')}</span>
                             </div>
-                          )}
-                        </div>
-                      </CardContent>
-                    </Card>
-                  ))}
+                          </div>
+                        </CardContent>
+                      </Card>
+                    )
+                  })}
                 </div>
+                
+                {activeTags.length === 0 && (
+                  <div className="text-center py-12">
+                    <Package className="w-16 h-16 text-gray-400 mx-auto mb-4" />
+                    <h3 className="text-xl font-semibold text-gray-900 mb-2">No Active Tags</h3>
+                    <p className="text-gray-600 mb-4">
+                      Create your first MRD time tag to start tracking products.
+                    </p>
+                    <Button onClick={() => setActiveTab('create-tag')}>
+                      <Plus className="w-4 h-4 mr-2" />
+                      Create First Tag
+                    </Button>
+                  </div>
+                )}
               </CardContent>
             </Card>
           </TabsContent>
+          
+          <TabsContent value="active-tags">
+            <ActiveTagsDashboard />
+          </TabsContent>
+          
+          <TabsContent value="create-tag">
+            <CreateTag />
+          </TabsContent>
+          
+          {(user?.role === 'admin' || user?.role === 'manager') && (
+            <TabsContent value="products">
+              <ProductManagement />
+            </TabsContent>
+          )}
+          
+          {user?.role === 'admin' && (
+            <>
+              <TabsContent value="users">
+                <UserManagement />
+              </TabsContent>
+              
+              <TabsContent value="locations">
+                <LocationManagement />
+              </TabsContent>
+            </>
+          )}
         </Tabs>
       </div>
     </div>

@@ -1,27 +1,30 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useCallback } from 'react'
+import { blink } from '../blink/client'
+import { useAuth } from '../hooks/useAuth'
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card'
 import { Button } from './ui/button'
 import { Badge } from './ui/badge'
 import { AlertTriangle, Clock, X, CheckCircle } from 'lucide-react'
-import { NotificationData } from '../types'
-import { format } from 'date-fns'
+import { format, differenceInMinutes, isAfter } from 'date-fns'
 
-interface NotificationSystemProps {
-  notifications: NotificationData[]
-  onDismiss: (id: string) => void
-  onMarkAsHandled: (id: string) => void
+interface NotificationData {
+  id: string
+  type: 'critical' | 'warning'
+  title: string
+  message: string
+  productName?: string
+  locationName?: string
+  timeRemaining?: string
+  timestamp: string
 }
 
-export const NotificationSystem: React.FC<NotificationSystemProps> = ({
-  notifications,
-  onDismiss,
-  onMarkAsHandled
-}) => {
+const NotificationSystem: React.FC = () => {
+  const { user, selectedLocation } = useAuth()
+  const [notifications, setNotifications] = useState<NotificationData[]>([])
   const [currentNotification, setCurrentNotification] = useState<NotificationData | null>(null)
   const [isVisible, setIsVisible] = useState(false)
 
   const playNotificationSound = () => {
-    // Create a simple beep sound using Web Audio API
     try {
       const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)()
       const oscillator = audioContext.createOscillator()
@@ -42,6 +45,71 @@ export const NotificationSystem: React.FC<NotificationSystemProps> = ({
       console.warn('Could not play notification sound:', error)
     }
   }
+
+  const checkForExpiringTags = useCallback(async () => {
+    try {
+      // Load active tags
+      let tagsData = await blink.db.mrdTags.list({
+        where: { status: 'active' },
+        orderBy: { discardTime: 'asc' }
+      })
+
+      // Filter based on user role and location access
+      if (user?.role === 'kitchen' && selectedLocation) {
+        tagsData = tagsData.filter(tag => tag.locationId === selectedLocation.id)
+      }
+
+      const now = new Date()
+      const newNotifications: NotificationData[] = []
+
+      tagsData.forEach(tag => {
+        const discardTime = new Date(tag.discardTime)
+        const minutesToDiscard = differenceInMinutes(discardTime, now)
+
+        if (isAfter(now, discardTime)) {
+          // Expired
+          newNotifications.push({
+            id: `expired_${tag.id}`,
+            type: 'critical',
+            title: 'PRODUCT EXPIRED',
+            message: `${tag.productName} has expired and must be discarded immediately!`,
+            productName: tag.productName,
+            locationName: tag.locationName,
+            timeRemaining: 'EXPIRED',
+            timestamp: new Date().toISOString()
+          })
+        } else if (minutesToDiscard <= 30) {
+          // Expiring soon
+          newNotifications.push({
+            id: `expiring_${tag.id}`,
+            type: 'warning',
+            title: 'PRODUCT EXPIRING SOON',
+            message: `${tag.productName} will expire in ${minutesToDiscard} minutes.`,
+            productName: tag.productName,
+            locationName: tag.locationName,
+            timeRemaining: `${minutesToDiscard} minutes`,
+            timestamp: new Date().toISOString()
+          })
+        }
+      })
+
+      setNotifications(newNotifications)
+    } catch (error) {
+      console.error('Error checking for expiring tags:', error)
+    }
+  }, [user, selectedLocation])
+
+  useEffect(() => {
+    if (user && selectedLocation) {
+      // Check immediately
+      checkForExpiringTags()
+      
+      // Then check every 30 seconds
+      const interval = setInterval(checkForExpiringTags, 30000)
+      
+      return () => clearInterval(interval)
+    }
+  }, [user, selectedLocation, checkForExpiringTags])
 
   useEffect(() => {
     // Show the most critical notification
@@ -66,14 +134,14 @@ export const NotificationSystem: React.FC<NotificationSystemProps> = ({
 
   const handleDismiss = () => {
     if (currentNotification) {
-      onDismiss(currentNotification.id)
+      setNotifications(prev => prev.filter(n => n.id !== currentNotification.id))
       setIsVisible(false)
     }
   }
 
   const handleMarkAsHandled = () => {
     if (currentNotification) {
-      onMarkAsHandled(currentNotification.id)
+      setNotifications(prev => prev.filter(n => n.id !== currentNotification.id))
       setIsVisible(false)
     }
   }
@@ -164,3 +232,5 @@ export const NotificationSystem: React.FC<NotificationSystemProps> = ({
     </div>
   )
 }
+
+export default NotificationSystem
